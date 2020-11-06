@@ -1,0 +1,91 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.40">
+    <actions>
+        <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobAction
+                plugin="pipeline-model-definition@1.7.2"/>
+        <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction
+                plugin="pipeline-model-definition@1.7.2">
+            <jobProperties/>
+            <triggers/>
+            <parameters/>
+            <options/>
+        </org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction>
+    </actions>
+    <description></description>
+    <keepDependencies>false</keepDependencies>
+    <properties>
+        <hudson.model.ParametersDefinitionProperty>
+            <parameterDefinitions>
+                <hudson.model.StringParameterDefinition>
+                    <name>gitBranch</name>
+                    <description>git branch</description>
+                    <defaultValue>master</defaultValue>
+                    <trim>false</trim>
+                </hudson.model.StringParameterDefinition>
+            </parameterDefinitions>
+        </hudson.model.ParametersDefinitionProperty>
+    </properties>
+    <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.83">
+        <script>pipeline {
+            agent any
+
+            tools {
+            // Install the Maven version configured as &quot;M3&quot; and add it to the path.
+            maven &quot;maven3.6.3&quot;
+            }
+
+            stages {
+            stage(&apos;git clone&apos;) {
+            steps{
+            git branch: &apos;${gitBranch}&apos;, credentialsId: &apos;paas-ci&apos;, url: &apos;http://192.168.199.143:48080/paas/sds-caas-d.git&apos;
+            }
+            }
+            stage(&apos;mvn install&apos;) {
+            steps{
+            dir(&apos;caas-api&apos;) {
+            sh &quot;mvn -s /var/jenkins_home/apache-maven-3.6.3/conf/settings.xml clean install&quot;
+            sh &quot;mkdir target/tmp &amp;&amp; cp Dockerfile target/tmp &amp;&amp; cp target/caas-api.jar target/tmp&quot;
+            }
+            }
+            }
+            stage(&apos;docker build push&apos;) {
+            steps{
+            sshagent([&apos;mid2-hostkey&apos;]) {
+            sh &quot;ssh -o StrictHostKeyChecking=no -l root 192.168.12.6 &apos;docker build -t
+            harbor.test.paas.com/paas/caas-api:${currentBuild.number}
+            /var/jenkins_home/workspace/api-test/caas-api/target/tmp/&apos;&quot;
+            sh &quot;ssh -o StrictHostKeyChecking=no -l root 192.168.12.6 &apos;docker login harbor.test.paas.com -p
+            Harbor12345 -u admin &amp;&amp; docker push harbor.test.paas.com/paas/caas-api:${currentBuild.number}&apos;&quot;
+            }
+            }
+            }
+            stage(&apos;docker stop rm&apos;) {
+            steps{
+            sshagent([&apos;mid2-hostkey&apos;]) {
+            sh &quot;ssh -o StrictHostKeyChecking=no -l root 192.168.12.3 &apos;docker rm -f caas-api&apos;&quot;
+            }
+            }
+            }
+            stage(&apos;docker run&apos;) {
+            steps{
+            sshagent([&apos;mid2-hostkey&apos;]) {
+            sh &quot;ssh -o StrictHostKeyChecking=no -l root 192.168.12.3 &apos;docker run -d --name caas-api
+            --restart=always --net=host -v /home/paas-platform/data/cloud-api/config:/home/admin/config -v
+            /var/log/cloud/cloud-api:/home/admin/log -v /tmpdir:/opt/dockercloudportal/tmpdir -v /root/.ssh/:/root/.ssh/
+            harbor.test.paas.com/paas/caas-api:${currentBuild.number}&apos;&quot;
+            }
+            }
+            }
+            stage(&quot;clean&quot;) {
+            steps {
+            cleanWs()
+            }
+            }
+            }
+            }
+        </script>
+        <sandbox>true</sandbox>
+    </definition>
+    <triggers/>
+    <disabled>false</disabled>
+</flow-definition>[
